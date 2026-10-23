@@ -43,6 +43,7 @@ class CaptureService : Service() {
         var sx = 1f
         var sy = 1f
         @Volatile var last: ByteArray? = null
+        @Volatile var stat = "belum ada frame"
 
         @Synchronized
         fun jpeg(): ByteArray? {
@@ -52,6 +53,12 @@ class CaptureService : Service() {
             full.copyPixelsFromBuffer(p.buffer); full.setHasAlpha(false)
             img.close()
             val bm = Bitmap.createBitmap(full, 0, 0, w, h)
+            var sum = 0L; var n = 0
+            for (yy in 0 until h step 40) for (xx in 0 until w step 40) {
+                val px = bm.getPixel(xx, yy)
+                sum += ((px shr 16) and 255) + ((px shr 8) and 255) + (px and 255); n++
+            }
+            stat = "frame ${w}x$h, rata2 terang=${if (n > 0) sum / (3 * n) else 0}/255"
             val o = ByteArrayOutputStream()
             bm.compress(Bitmap.CompressFormat.JPEG, 45, o)
             full.recycle(); bm.recycle()

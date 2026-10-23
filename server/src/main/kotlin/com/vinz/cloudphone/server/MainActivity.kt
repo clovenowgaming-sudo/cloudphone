@@ -47,12 +47,13 @@ class MainActivity : Activity() {
     override fun onDestroy() { h.removeCallbacks(tick); super.onDestroy() }
 
     private fun refresh() {
+        try { if (CaptureService.reader != null) CaptureService.jpeg() } catch (_: Exception) {}
         val p = getSharedPreferences("cp", Context.MODE_PRIVATE)
         val dom = (p.getString("ngrok_domain", "") ?: "").removePrefix("https://")
         info.text = "Token: ${p.getString("srvtok", "(tekan START)")}\n" +
             "URL: https://$dom\n" +
             "Accessibility: ${if (InputService.inst != null) "AKTIF" else "BELUM aktif"}\n\n" +
-            Tunnel.log
+            CaptureService.stat + "\n\n" + Tunnel.log
     }
 
     @Suppress("DEPRECATION")

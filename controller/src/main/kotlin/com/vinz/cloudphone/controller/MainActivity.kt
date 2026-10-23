@@ -76,16 +76,29 @@ class RemoteView(c: Context, private val base: String, private val tok: String) 
 
     fun stop() { alive = false; io.shutdownNow() }
 
+    @Volatile private var status = "menghubungi server..."
+    private val tp = Paint().apply { color = Color.WHITE; textSize = 34f }
+
     private fun loop() {
         while (alive) {
             try {
                 val cn = URL("$base/frame?token=$tok").openConnection() as HttpURLConnection
                 cn.setRequestProperty("ngrok-skip-browser-warning", "1")
                 cn.connectTimeout = 8000; cn.readTimeout = 15000
-                val b = cn.inputStream.use { BitmapFactory.decodeStream(it) }
-                if (b != null) { bmp = b; postInvalidate() }
-                try { Thread.sleep(700) } catch (_: Exception) {}
+                val code = cn.responseCode
+                if (code != 200) {
+                    status = "HTTP $code"
+                } else {
+                    val bytes = cn.inputStream.use { it.readBytes() }
+                    val b = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    if (b != null) { bmp = b; status = "" }
+                    else status = "bukan gambar (${bytes.size} B): " + String(bytes, 0, minOf(60, bytes.size)).replace("\n", " ")
+                }
+                postInvalidate()
+                Thread.sleep(700)
             } catch (e: Exception) {
+                status = "error: ${e.javaClass.simpleName} ${e.message}"
+                postInvalidate()
                 try { Thread.sleep(1500) } catch (_: Exception) {}
             }
         }
@@ -113,6 +126,7 @@ class RemoteView(c: Context, private val base: String, private val tok: String) 
     private fun scale(b: Bitmap) = minOf(width / b.width.toFloat(), height / b.height.toFloat())
 
     override fun onDraw(c: Canvas) {
+        status.chunked(32).forEachIndexed { i, l -> c.drawText(l, 16f, 60f + i * 44f, tp) }
         val b = bmp ?: return
         val s = scale(b)
         val ox = (width - b.width * s) / 2
