@@ -84,6 +84,7 @@ class RemoteView(c: Context, private val base: String, private val tok: String) 
                 cn.connectTimeout = 8000; cn.readTimeout = 15000
                 val b = cn.inputStream.use { BitmapFactory.decodeStream(it) }
                 if (b != null) { bmp = b; postInvalidate() }
+                try { Thread.sleep(700) } catch (_: Exception) {}
             } catch (e: Exception) {
                 try { Thread.sleep(1500) } catch (_: Exception) {}
             }

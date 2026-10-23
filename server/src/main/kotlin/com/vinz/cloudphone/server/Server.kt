@@ -49,11 +49,11 @@ class CaptureService : Service() {
             val img = (try { reader?.acquireLatestImage() } catch (e: Exception) { null }) ?: return last
             val p = img.planes[0]
             val full = Bitmap.createBitmap(p.rowStride / p.pixelStride, h, Bitmap.Config.ARGB_8888)
-            full.copyPixelsFromBuffer(p.buffer)
+            full.copyPixelsFromBuffer(p.buffer); full.setHasAlpha(false)
             img.close()
             val bm = Bitmap.createBitmap(full, 0, 0, w, h)
             val o = ByteArrayOutputStream()
-            bm.compress(Bitmap.CompressFormat.JPEG, 60, o)
+            bm.compress(Bitmap.CompressFormat.JPEG, 45, o)
             full.recycle(); bm.recycle()
             last = o.toByteArray()
             return last
@@ -89,7 +89,7 @@ class CaptureService : Service() {
         mp.registerCallback(object : MediaProjection.Callback() {}, Handler(Looper.getMainLooper()))
         val dm = DisplayMetrics()
         (getSystemService(WINDOW_SERVICE) as WindowManager).defaultDisplay.getRealMetrics(dm)
-        val sc = minOf(1f, 720f / dm.widthPixels)
+        val sc = minOf(1f, 540f / dm.widthPixels)
         w = (dm.widthPixels * sc).toInt() and 1.inv()
         h = (dm.heightPixels * sc).toInt() and 1.inv()
         sx = dm.widthPixels / w.toFloat()
