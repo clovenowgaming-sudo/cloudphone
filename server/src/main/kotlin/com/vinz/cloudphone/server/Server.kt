@@ -211,6 +211,35 @@ object Tunnel {
     @Volatile private var on = false
     @Volatile private var proc: Process? = null
 
+    private fun proxy(): Int {
+        val ss = ServerSocket(0, 50, java.net.InetAddress.getByName("127.0.0.1"))
+        Thread {
+            while (true) {
+                val c = try { ss.accept() } catch (e: Exception) { break }
+                Thread {
+                    try {
+                        c.use {
+                            val br = java.io.BufferedReader(java.io.InputStreamReader(c.getInputStream(), Charsets.ISO_8859_1))
+                            val parts = (br.readLine() ?: return@Thread).split(" ")
+                            while (true) { val l = br.readLine() ?: break; if (l.isEmpty()) break }
+                            val o = c.getOutputStream()
+                            if (parts.size < 2 || parts[0] != "GET" || !parts[1].startsWith("http://")) {
+                                o.write("HTTP/1.1 502 X\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
+                                return@Thread
+                            }
+                            val cn = java.net.URL(parts[1]).openConnection() as java.net.HttpURLConnection
+                            cn.connectTimeout = 10000; cn.readTimeout = 10000
+                            val body = cn.inputStream.use { it.readBytes() }
+                            o.write("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                            o.write(body); o.flush()
+                        }
+                    } catch (e: Exception) {}
+                }.start()
+            }
+        }.start()
+        return ss.localPort
+    }
+
     fun start(ctx: Context) {
         if (on) return
         on = true
@@ -221,13 +250,16 @@ object Tunnel {
         val cfg = File(app.filesDir, "ngrok.yml")
         cfg.writeText("version: \"2\"\nauthtoken: $auth\nupdate_check: false\ndns_resolver_ips:\n  - 8.8.8.8\n  - 1.1.1.1\n")
         val bin = File(app.applicationInfo.nativeLibraryDir, "libngrok.so")
-        log = "menjalankan ngrok..."
+        val pport = proxy()
+        log = "menjalankan ngrok (proxy :$pport)..."
         Thread {
             while (on) {
                 try {
                     val pb = ProcessBuilder(bin.absolutePath, "http", "8080",
                         "--url=https://$dom", "--config=${cfg.absolutePath}", "--log=stdout")
                     pb.environment()["HOME"] = app.filesDir.absolutePath
+                    pb.environment()["HTTP_PROXY"] = "http://127.0.0.1:$pport"
+                    pb.environment()["http_proxy"] = "http://127.0.0.1:$pport"
                     pb.redirectErrorStream(true)
                     val pr = pb.start()
                     proc = pr
