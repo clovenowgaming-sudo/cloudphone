@@ -60,7 +60,7 @@ class CaptureService : Service() {
             }
             stat = "frame ${w}x$h, rata2 terang=${if (n > 0) sum / (3 * n) else 0}/255"
             val o = ByteArrayOutputStream()
-            bm.compress(Bitmap.CompressFormat.JPEG, 45, o)
+            bm.compress(Bitmap.CompressFormat.JPEG, 38, o)
             full.recycle(); bm.recycle()
             last = o.toByteArray()
             return last
@@ -96,7 +96,7 @@ class CaptureService : Service() {
         mp.registerCallback(object : MediaProjection.Callback() {}, Handler(Looper.getMainLooper()))
         val dm = DisplayMetrics()
         (getSystemService(WINDOW_SERVICE) as WindowManager).defaultDisplay.getRealMetrics(dm)
-        val sc = minOf(1f, 540f / dm.widthPixels)
+        val sc = minOf(1f, 420f / dm.widthPixels)
         w = (dm.widthPixels * sc).toInt() and 1.inv()
         h = (dm.heightPixels * sc).toInt() and 1.inv()
         sx = dm.widthPixels / w.toFloat()
@@ -106,6 +106,12 @@ class CaptureService : Service() {
         mp.createVirtualDisplay("cp", w, h, dm.densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, null)
         Http.start(tok)
+        Thread {
+            while (reader === r) {
+                try { jpeg() } catch (e: Exception) {}
+                try { Thread.sleep(40) } catch (e: Exception) {}
+            }
+        }.start()
         CfTunnel.start(this)
         return START_NOT_STICKY
     }
@@ -175,10 +181,12 @@ object Http {
                 val parts = (br.readLine() ?: return).split(" ")
                 val target = parts[1]
                 var len = 0
+                var wsKey = ""
                 while (true) {
                     val l = br.readLine() ?: break
                     if (l.isEmpty()) break
                     if (l.startsWith("content-length:", true)) len = l.substring(15).trim().toInt()
+                    if (l.startsWith("sec-websocket-key:", true)) wsKey = l.substring(18).trim()
                 }
                 val buf = CharArray(len)
                 var o = 0
@@ -209,6 +217,25 @@ object Http {
                             Thread.sleep(80)
                         }
                     }
+                    "/ws" -> {
+                        val acc = android.util.Base64.encodeToString(
+                            java.security.MessageDigest.getInstance("SHA-1")
+                                .digest((wsKey + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").toByteArray()),
+                            android.util.Base64.NO_WRAP)
+                        val o = s.getOutputStream()
+                        o.write(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: $acc\r\n\r\n").toByteArray())
+                        o.flush()
+                        var sent: ByteArray? = null
+                        var t0 = 0L
+                        while (true) {
+                            val j = CaptureService.last
+                            val now = System.currentTimeMillis()
+                            if (j != null && (j !== sent || now - t0 > 3000)) {
+                                wsSend(o, j); sent = j; t0 = now
+                            }
+                            Thread.sleep(30)
+                        }
+                    }
                     "/frame" -> {
                         val j = CaptureService.jpeg()
                         if (j == null) send(s, 503, "text/plain", "no frame".toByteArray())
@@ -219,6 +246,16 @@ object Http {
                 }
             }
         } catch (e: Exception) {}
+    }
+
+    private fun wsSend(o: java.io.OutputStream, p: ByteArray) {
+        val h = java.io.ByteArrayOutputStream()
+        h.write(0x82)
+        val n = p.size
+        if (n < 126) h.write(n)
+        else if (n < 65536) { h.write(126); h.write(n shr 8); h.write(n and 255) }
+        else { h.write(127); for (i in 7 downTo 0) h.write(((n.toLong() shr (8 * i)) and 255L).toInt()) }
+        o.write(h.toByteArray()); o.write(p); o.flush()
     }
 
     private fun input(j: JSONObject) {

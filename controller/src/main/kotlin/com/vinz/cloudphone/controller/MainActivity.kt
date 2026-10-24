@@ -83,36 +83,37 @@ class RemoteView(c: Context, private val base: String, private val tok: String) 
     @Volatile private var lastErr = ""
 
     private fun loop() {
-        while (alive) { if (fails >= 2) pollOnce() else streamOnce() }
+        while (alive) { if (fails >= 3) pollOnce() else wsOnce() }
     }
 
-    private fun streamOnce() {
-        var cn: HttpURLConnection? = null
+    private fun wsOnce() {
+        val done = java.util.concurrent.CountDownLatch(1)
         var got = false
-        try {
-            cn = URL("$base/stream?token=$tok").openConnection() as HttpURLConnection
-            cn.setRequestProperty("ngrok-skip-browser-warning", "1")
-            cn.connectTimeout = 10000; cn.readTimeout = 15000
-            val code = cn.responseCode
-            if (code != 200) throw java.io.IOException("HTTP $code")
-            val din = java.io.DataInputStream(java.io.BufferedInputStream(cn.inputStream, 65536))
-            while (alive) {
-                val n = din.readInt()
-                if (n <= 0 || n > 4000000) throw java.io.IOException("frame rusak")
-                val buf = ByteArray(n)
-                din.readFully(buf)
-                val bm = BitmapFactory.decodeByteArray(buf, 0, n)
-                if (bm != null) { bmp = bm; got = true; fails = 0; status = "mode: stream"; postInvalidate() }
+        val c = okhttp3.OkHttpClient.Builder()
+            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
+        val req = okhttp3.Request.Builder().url("$base/ws?token=$tok")
+            .header("ngrok-skip-browser-warning", "1").build()
+        val ws = c.newWebSocket(req, object : okhttp3.WebSocketListener() {
+            override fun onMessage(webSocket: okhttp3.WebSocket, bytes: okio.ByteString) {
+                val b = bytes.toByteArray()
+                val bm = BitmapFactory.decodeByteArray(b, 0, b.size)
+                if (bm != null) { bmp = bm; got = true; fails = 0; status = "mode: websocket"; postInvalidate() }
             }
-        } catch (e: Exception) {
-            if (!got) fails++
-            lastErr = "${e.javaClass.simpleName} ${e.message}"
-            status = "stream: $lastErr"
-            postInvalidate()
-            try { Thread.sleep(800) } catch (_: Exception) {}
-        } finally {
-            try { cn?.disconnect() } catch (_: Exception) {}
-        }
+            override fun onFailure(webSocket: okhttp3.WebSocket, t: Throwable, response: okhttp3.Response?) {
+                lastErr = "${t.javaClass.simpleName} ${t.message} ${response?.code ?: ""}"
+                done.countDown()
+            }
+            override fun onClosing(webSocket: okhttp3.WebSocket, code: Int, reason: String) {
+                webSocket.close(1000, null); done.countDown()
+            }
+            override fun onClosed(webSocket: okhttp3.WebSocket, code: Int, reason: String) { done.countDown() }
+        })
+        try { while (alive && !done.await(500, java.util.concurrent.TimeUnit.MILLISECONDS)) { } } catch (_: Exception) {}
+        ws.cancel()
+        c.dispatcher.executorService.shutdown()
+        c.connectionPool.evictAll()
+        if (!got) { fails++; status = "ws: $lastErr"; postInvalidate() }
+        try { Thread.sleep(800) } catch (_: Exception) {}
     }
 
     private fun pollOnce() {
@@ -124,8 +125,8 @@ class RemoteView(c: Context, private val base: String, private val tok: String) 
             if (code != 200) { status = "HTTP $code"; postInvalidate(); Thread.sleep(1500); return }
             val bytes = cn.inputStream.use { it.readBytes() }
             val bm = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            if (bm != null) { bmp = bm; status = "mode: polling (stream gagal: $lastErr)"; postInvalidate() }
-            Thread.sleep(120)
+            if (bm != null) { bmp = bm; status = "mode: polling (ws gagal: $lastErr)"; postInvalidate() }
+            Thread.sleep(100)
         } catch (e: Exception) {
             status = "polling error: ${e.javaClass.simpleName} ${e.message}"
             postInvalidate()
