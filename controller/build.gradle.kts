@@ -12,6 +12,18 @@ android {
         versionCode = 1
         versionName = "1.0"
     }
+    signingConfigs {
+        create("fixed") {
+            storeFile = rootProject.file("fixed.p12")
+            storePassword = "android"
+            keyAlias = "key"
+            keyPassword = "android"
+            storeType = "pkcs12"
+        }
+    }
+    buildTypes {
+        getByName("debug") { signingConfig = signingConfigs.getByName("fixed") }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

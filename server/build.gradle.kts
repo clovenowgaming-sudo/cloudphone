@@ -20,6 +20,18 @@ android {
             keepDebugSymbols += "**/libcloudflared.so" // jangan di-strip
         }
     }
+    signingConfigs {
+        create("fixed") {
+            storeFile = rootProject.file("fixed.p12")
+            storePassword = "android"
+            keyAlias = "key"
+            keyPassword = "android"
+            storeType = "pkcs12"
+        }
+    }
+    buildTypes {
+        getByName("debug") { signingConfig = signingConfigs.getByName("fixed") }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
