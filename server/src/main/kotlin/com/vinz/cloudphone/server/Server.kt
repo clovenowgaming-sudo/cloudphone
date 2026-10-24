@@ -187,6 +187,23 @@ object Http {
                 val t = Regex("token=([^&]+)").find(target)?.groupValues?.get(1)
                 if (t != token) return send(s, 401, "text/plain", ByteArray(0))
                 when (target.substringBefore('?')) {
+                    "/stream" -> {
+                        val o = s.getOutputStream()
+                        o.write("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".toByteArray())
+                        o.flush()
+                        val d = java.io.DataOutputStream(java.io.BufferedOutputStream(o, 65536))
+                        var sent: ByteArray? = null
+                        var t0 = 0L
+                        while (true) {
+                            val j = CaptureService.jpeg()
+                            val now = System.currentTimeMillis()
+                            if (j != null && (j !== sent || now - t0 > 5000)) {
+                                d.writeInt(j.size); d.write(j); d.flush()
+                                sent = j; t0 = now
+                            }
+                            Thread.sleep(80)
+                        }
+                    }
                     "/frame" -> {
                         val j = CaptureService.jpeg()
                         if (j == null) send(s, 503, "text/plain", "no frame".toByteArray())

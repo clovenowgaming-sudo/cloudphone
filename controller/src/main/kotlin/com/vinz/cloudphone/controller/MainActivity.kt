@@ -81,25 +81,32 @@ class RemoteView(c: Context, private val base: String, private val tok: String) 
 
     private fun loop() {
         while (alive) {
+            var cn: HttpURLConnection? = null
             try {
-                val cn = URL("$base/frame?token=$tok").openConnection() as HttpURLConnection
+                cn = URL("$base/stream?token=$tok").openConnection() as HttpURLConnection
                 cn.setRequestProperty("ngrok-skip-browser-warning", "1")
-                cn.connectTimeout = 8000; cn.readTimeout = 15000
+                cn.connectTimeout = 10000; cn.readTimeout = 20000
                 val code = cn.responseCode
                 if (code != 200) {
-                    status = "HTTP $code"
-                } else {
-                    val bytes = cn.inputStream.use { it.readBytes() }
-                    val b = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    if (b != null) { bmp = b; status = "" }
-                    else status = "bukan gambar (${bytes.size} B): " + String(bytes, 0, minOf(60, bytes.size)).replace("\n", " ")
+                    status = "HTTP $code"; postInvalidate()
+                    Thread.sleep(1500); continue
                 }
-                postInvalidate()
-                Thread.sleep(700)
+                status = ""
+                val din = java.io.DataInputStream(java.io.BufferedInputStream(cn.inputStream, 65536))
+                while (alive) {
+                    val n = din.readInt()
+                    if (n <= 0 || n > 4000000) throw java.io.IOException("frame rusak")
+                    val buf = ByteArray(n)
+                    din.readFully(buf)
+                    val bm = BitmapFactory.decodeByteArray(buf, 0, n)
+                    if (bm != null) { bmp = bm; postInvalidate() }
+                }
             } catch (e: Exception) {
                 status = "error: ${e.javaClass.simpleName} ${e.message}"
                 postInvalidate()
                 try { Thread.sleep(1500) } catch (_: Exception) {}
+            } finally {
+                try { cn?.disconnect() } catch (_: Exception) {}
             }
         }
     }
