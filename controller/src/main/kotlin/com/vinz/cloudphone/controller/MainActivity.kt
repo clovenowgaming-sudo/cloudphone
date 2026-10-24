@@ -79,58 +79,39 @@ class RemoteView(c: Context, private val base: String, private val tok: String) 
     @Volatile private var status = "menghubungi server..."
     private val tp = Paint().apply { color = Color.WHITE; textSize = 34f }
 
-    @Volatile private var fails = 0
-    @Volatile private var lastErr = ""
+    private val http by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+            .build()
+    }
 
     private fun loop() {
-        while (alive) { if (fails >= 3) pollOnce() else wsOnce() }
-    }
-
-    private fun wsOnce() {
-        val done = java.util.concurrent.CountDownLatch(1)
-        var got = false
-        val c = okhttp3.OkHttpClient.Builder()
-            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
-        val req = okhttp3.Request.Builder().url("$base/ws?token=$tok")
-            .header("ngrok-skip-browser-warning", "1").build()
-        val ws = c.newWebSocket(req, object : okhttp3.WebSocketListener() {
-            override fun onMessage(webSocket: okhttp3.WebSocket, bytes: okio.ByteString) {
-                val b = bytes.toByteArray()
-                val bm = BitmapFactory.decodeByteArray(b, 0, b.size)
-                if (bm != null) { bmp = bm; got = true; fails = 0; status = "mode: websocket"; postInvalidate() }
+        var since = 0L
+        while (alive) {
+            try {
+                val req = okhttp3.Request.Builder().url("$base/poll?since=$since&token=$tok")
+                    .header("ngrok-skip-browser-warning", "1").build()
+                http.newCall(req).execute().use { r ->
+                    when (r.code) {
+                        200 -> {
+                            val b = r.body!!.bytes()
+                            if (b.size > 8) {
+                                since = java.nio.ByteBuffer.wrap(b, 0, 8).long
+                                val bm = BitmapFactory.decodeByteArray(b, 8, b.size - 8)
+                                if (bm != null) { bmp = bm; status = ""; postInvalidate() }
+                            }
+                        }
+                        204 -> {}
+                        else -> { status = "HTTP ${r.code}"; postInvalidate(); Thread.sleep(1500) }
+                    }
+                }
+            } catch (e: Exception) {
+                status = "error: ${e.javaClass.simpleName} ${e.message}"
+                postInvalidate()
+                try { Thread.sleep(1200) } catch (_: Exception) {}
             }
-            override fun onFailure(webSocket: okhttp3.WebSocket, t: Throwable, response: okhttp3.Response?) {
-                lastErr = "${t.javaClass.simpleName} ${t.message} ${response?.code ?: ""}"
-                done.countDown()
-            }
-            override fun onClosing(webSocket: okhttp3.WebSocket, code: Int, reason: String) {
-                webSocket.close(1000, null); done.countDown()
-            }
-            override fun onClosed(webSocket: okhttp3.WebSocket, code: Int, reason: String) { done.countDown() }
-        })
-        try { while (alive && !done.await(500, java.util.concurrent.TimeUnit.MILLISECONDS)) { } } catch (_: Exception) {}
-        ws.cancel()
-        c.dispatcher.executorService.shutdown()
-        c.connectionPool.evictAll()
-        if (!got) { fails++; status = "ws: $lastErr"; postInvalidate() }
-        try { Thread.sleep(800) } catch (_: Exception) {}
-    }
-
-    private fun pollOnce() {
-        try {
-            val cn = URL("$base/frame?token=$tok").openConnection() as HttpURLConnection
-            cn.setRequestProperty("ngrok-skip-browser-warning", "1")
-            cn.connectTimeout = 10000; cn.readTimeout = 15000
-            val code = cn.responseCode
-            if (code != 200) { status = "HTTP $code"; postInvalidate(); Thread.sleep(1500); return }
-            val bytes = cn.inputStream.use { it.readBytes() }
-            val bm = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            if (bm != null) { bmp = bm; status = "mode: polling (ws gagal: $lastErr)"; postInvalidate() }
-            Thread.sleep(100)
-        } catch (e: Exception) {
-            status = "polling error: ${e.javaClass.simpleName} ${e.message}"
-            postInvalidate()
-            try { Thread.sleep(1500) } catch (_: Exception) {}
         }
     }
 

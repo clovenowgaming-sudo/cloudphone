@@ -43,6 +43,7 @@ class CaptureService : Service() {
         var sx = 1f
         var sy = 1f
         @Volatile var last: ByteArray? = null
+        @Volatile var seq = 0L
         @Volatile var stat = "belum ada frame"
 
         @Synchronized
@@ -62,7 +63,7 @@ class CaptureService : Service() {
             val o = ByteArrayOutputStream()
             bm.compress(Bitmap.CompressFormat.JPEG, 38, o)
             full.recycle(); bm.recycle()
-            last = o.toByteArray()
+            last = o.toByteArray(); seq++
             return last
         }
     }
@@ -234,6 +235,22 @@ object Http {
                                 wsSend(o, j); sent = j; t0 = now
                             }
                             Thread.sleep(30)
+                        }
+                    }
+                    "/poll" -> {
+                        val since = Regex("since=(\\d+)").find(target)?.groupValues?.get(1)?.toLong() ?: 0L
+                        val t0 = System.currentTimeMillis()
+                        while (CaptureService.seq <= since && System.currentTimeMillis() - t0 < 2500) {
+                            CaptureService.jpeg()
+                            Thread.sleep(15)
+                        }
+                        val j = CaptureService.last
+                        if (j == null || CaptureService.seq <= since) {
+                            send(s, 204, "text/plain", ByteArray(0))
+                        } else {
+                            val bo = java.io.ByteArrayOutputStream(j.size + 8)
+                            java.io.DataOutputStream(bo).apply { writeLong(CaptureService.seq); write(j) }
+                            send(s, 200, "application/octet-stream", bo.toByteArray())
                         }
                     }
                     "/frame" -> {
