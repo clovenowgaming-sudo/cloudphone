@@ -189,16 +189,21 @@ object Http {
                 when (target.substringBefore('?')) {
                     "/stream" -> {
                         val o = s.getOutputStream()
-                        o.write("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".toByteArray())
+                        o.write("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n".toByteArray())
                         o.flush()
-                        val d = java.io.DataOutputStream(java.io.BufferedOutputStream(o, 65536))
                         var sent: ByteArray? = null
                         var t0 = 0L
                         while (true) {
                             val j = CaptureService.jpeg()
                             val now = System.currentTimeMillis()
-                            if (j != null && (j !== sent || now - t0 > 5000)) {
-                                d.writeInt(j.size); d.write(j); d.flush()
+                            if (j != null && (j !== sent || now - t0 > 3000)) {
+                                val bo = java.io.ByteArrayOutputStream(j.size + 4)
+                                java.io.DataOutputStream(bo).apply { writeInt(j.size); write(j) }
+                                val pl = bo.toByteArray()
+                                o.write((Integer.toHexString(pl.size) + "\r\n").toByteArray())
+                                o.write(pl)
+                                o.write("\r\n".toByteArray())
+                                o.flush()
                                 sent = j; t0 = now
                             }
                             Thread.sleep(80)

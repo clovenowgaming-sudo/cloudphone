@@ -79,35 +79,57 @@ class RemoteView(c: Context, private val base: String, private val tok: String) 
     @Volatile private var status = "menghubungi server..."
     private val tp = Paint().apply { color = Color.WHITE; textSize = 34f }
 
+    @Volatile private var fails = 0
+    @Volatile private var lastErr = ""
+
     private fun loop() {
-        while (alive) {
-            var cn: HttpURLConnection? = null
-            try {
-                cn = URL("$base/stream?token=$tok").openConnection() as HttpURLConnection
-                cn.setRequestProperty("ngrok-skip-browser-warning", "1")
-                cn.connectTimeout = 10000; cn.readTimeout = 20000
-                val code = cn.responseCode
-                if (code != 200) {
-                    status = "HTTP $code"; postInvalidate()
-                    Thread.sleep(1500); continue
-                }
-                status = ""
-                val din = java.io.DataInputStream(java.io.BufferedInputStream(cn.inputStream, 65536))
-                while (alive) {
-                    val n = din.readInt()
-                    if (n <= 0 || n > 4000000) throw java.io.IOException("frame rusak")
-                    val buf = ByteArray(n)
-                    din.readFully(buf)
-                    val bm = BitmapFactory.decodeByteArray(buf, 0, n)
-                    if (bm != null) { bmp = bm; postInvalidate() }
-                }
-            } catch (e: Exception) {
-                status = "error: ${e.javaClass.simpleName} ${e.message}"
-                postInvalidate()
-                try { Thread.sleep(1500) } catch (_: Exception) {}
-            } finally {
-                try { cn?.disconnect() } catch (_: Exception) {}
+        while (alive) { if (fails >= 2) pollOnce() else streamOnce() }
+    }
+
+    private fun streamOnce() {
+        var cn: HttpURLConnection? = null
+        var got = false
+        try {
+            cn = URL("$base/stream?token=$tok").openConnection() as HttpURLConnection
+            cn.setRequestProperty("ngrok-skip-browser-warning", "1")
+            cn.connectTimeout = 10000; cn.readTimeout = 15000
+            val code = cn.responseCode
+            if (code != 200) throw java.io.IOException("HTTP $code")
+            val din = java.io.DataInputStream(java.io.BufferedInputStream(cn.inputStream, 65536))
+            while (alive) {
+                val n = din.readInt()
+                if (n <= 0 || n > 4000000) throw java.io.IOException("frame rusak")
+                val buf = ByteArray(n)
+                din.readFully(buf)
+                val bm = BitmapFactory.decodeByteArray(buf, 0, n)
+                if (bm != null) { bmp = bm; got = true; fails = 0; status = "mode: stream"; postInvalidate() }
             }
+        } catch (e: Exception) {
+            if (!got) fails++
+            lastErr = "${e.javaClass.simpleName} ${e.message}"
+            status = "stream: $lastErr"
+            postInvalidate()
+            try { Thread.sleep(800) } catch (_: Exception) {}
+        } finally {
+            try { cn?.disconnect() } catch (_: Exception) {}
+        }
+    }
+
+    private fun pollOnce() {
+        try {
+            val cn = URL("$base/frame?token=$tok").openConnection() as HttpURLConnection
+            cn.setRequestProperty("ngrok-skip-browser-warning", "1")
+            cn.connectTimeout = 10000; cn.readTimeout = 15000
+            val code = cn.responseCode
+            if (code != 200) { status = "HTTP $code"; postInvalidate(); Thread.sleep(1500); return }
+            val bytes = cn.inputStream.use { it.readBytes() }
+            val bm = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            if (bm != null) { bmp = bm; status = "mode: polling (stream gagal: $lastErr)"; postInvalidate() }
+            Thread.sleep(120)
+        } catch (e: Exception) {
+            status = "polling error: ${e.javaClass.simpleName} ${e.message}"
+            postInvalidate()
+            try { Thread.sleep(1500) } catch (_: Exception) {}
         }
     }
 
