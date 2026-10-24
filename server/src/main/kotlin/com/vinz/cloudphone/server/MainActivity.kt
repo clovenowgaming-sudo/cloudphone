@@ -24,17 +24,18 @@ class MainActivity : Activity() {
         val p = getSharedPreferences("cp", Context.MODE_PRIVATE)
         val l = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(48, 96, 48, 48) }
         val a = EditText(this).apply { hint = "ngrok authtoken"; setText(p.getString("ngrok_token", "")) }
+        val c = EditText(this).apply { hint = "Cloudflare tunnel token (opsional)"; setText(p.getString("cf_token", "")) }
         val d = EditText(this).apply { hint = "Domain static (abc.ngrok-free.app)"; setText(p.getString("ngrok_domain", "")) }
         val go = Button(this).apply { text = "START SERVER" }
         val stop = Button(this).apply { text = "STOP" }
         val acc = Button(this).apply { text = "Aktifkan Accessibility (kontrol sentuh)" }
         info = TextView(this).apply { setTextIsSelectable(true); textSize = 13f }
         l.addView(TextView(this).apply { text = "Cloud Phone Server"; textSize = 26f })
-        l.addView(a); l.addView(d); l.addView(go); l.addView(acc); l.addView(stop); l.addView(info)
+        l.addView(a); l.addView(d); l.addView(c); l.addView(go); l.addView(acc); l.addView(stop); l.addView(info)
 
         go.setOnClickListener {
             p.edit().putString("ngrok_token", a.text.toString().trim())
-                .putString("ngrok_domain", d.text.toString().trim()).apply()
+                .putString("ngrok_domain", d.text.toString().trim()).putString("cf_token", c.text.toString().trim()).apply()
             val m = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             startActivityForResult(m.createScreenCaptureIntent(), 77)
         }
@@ -53,7 +54,7 @@ class MainActivity : Activity() {
         info.text = "Token: ${p.getString("srvtok", "(tekan START)")}\n" +
             "URL: https://$dom\n" +
             "Accessibility: ${if (InputService.inst != null) "AKTIF" else "BELUM aktif"}\n\n" +
-            CaptureService.stat + "\n\n" + Tunnel.log
+            CaptureService.stat + "\n\n" + Tunnel.log + "\n" + CfTunnel.log
     }
 
     @Suppress("DEPRECATION")

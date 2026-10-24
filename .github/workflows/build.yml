@@ -14,6 +14,7 @@ jobs:
           mkdir -p server/src/main/jniLibs/arm64-v8a
           curl -fL https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm64.tgz | tar xz -C /tmp
           cp /tmp/ngrok server/src/main/jniLibs/arm64-v8a/libngrok.so
+          curl -fL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64 -o server/src/main/jniLibs/arm64-v8a/libcloudflared.so
       - run: gradle assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:

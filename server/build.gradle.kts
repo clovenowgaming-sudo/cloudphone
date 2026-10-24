@@ -16,7 +16,8 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true            // ngrok di-extract ke nativeLibraryDir agar bisa dieksekusi
-            keepDebugSymbols += "**/libngrok.so" // jangan di-strip
+            keepDebugSymbols += "**/libngrok.so"
+            keepDebugSymbols += "**/libcloudflared.so" // jangan di-strip
         }
     }
     compileOptions {

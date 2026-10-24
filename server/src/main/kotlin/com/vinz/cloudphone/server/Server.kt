@@ -69,7 +69,7 @@ class CaptureService : Service() {
 
     override fun onBind(i: Intent?): IBinder? = null
 
-    override fun onDestroy() { Tunnel.stop(); reader?.close(); reader = null; super.onDestroy() }
+    override fun onDestroy() { Tunnel.stop(); CfTunnel.stop(); reader?.close(); reader = null; super.onDestroy() }
 
     private fun startFg() {
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
@@ -107,6 +107,7 @@ class CaptureService : Service() {
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, null)
         Http.start(tok)
         Tunnel.start(this)
+        CfTunnel.start(this)
         return START_NOT_STICKY
     }
 }
@@ -280,4 +281,39 @@ object Tunnel {
     }
 
     fun stop() { on = false; proc?.destroy(); log = "ngrok berhenti" }
+}
+
+/** Menjalankan cloudflared (libcloudflared.so dari APK) dengan token named tunnel. */
+object CfTunnel {
+    @Volatile var log = "cloudflared belum jalan"
+    @Volatile private var on = false
+    @Volatile private var proc: Process? = null
+
+    fun start(ctx: Context) {
+        if (on) return
+        val app = ctx.applicationContext
+        val tok = (app.getSharedPreferences("cp", Context.MODE_PRIVATE).getString("cf_token", "") ?: "").trim()
+        if (tok.isEmpty()) { log = "cloudflared nonaktif (token kosong)"; return }
+        on = true
+        val bin = File(app.applicationInfo.nativeLibraryDir, "libcloudflared.so")
+        log = "menjalankan cloudflared..."
+        Thread {
+            while (on) {
+                try {
+                    val pb = ProcessBuilder(bin.absolutePath, "tunnel", "--no-autoupdate",
+                        "--protocol", "http2", "run", "--token", tok)
+                    pb.environment()["HOME"] = app.filesDir.absolutePath
+                    pb.redirectErrorStream(true)
+                    val pr = pb.start()
+                    proc = pr
+                    pr.inputStream.bufferedReader().forEachLine { log = (log + "\n" + it).takeLast(1500) }
+                } catch (e: Exception) {
+                    log = (log + "\nERR: " + e.message).takeLast(1500)
+                }
+                try { Thread.sleep(3000) } catch (_: Exception) {}
+            }
+        }.start()
+    }
+
+    fun stop() { on = false; proc?.destroy(); log = "cloudflared berhenti" }
 }
