@@ -106,7 +106,6 @@ class CaptureService : Service() {
         mp.createVirtualDisplay("cp", w, h, dm.densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, null)
         Http.start(tok)
-        Tunnel.start(this)
         CfTunnel.start(this)
         return START_NOT_STICKY
     }
@@ -300,8 +299,12 @@ object CfTunnel {
         Thread {
             while (on) {
                 try {
-                    val pb = ProcessBuilder(bin.absolutePath, "tunnel", "--no-autoupdate",
-                        "--protocol", "http2", "run", "--token", tok)
+                    val cmd = arrayListOf(bin.absolutePath, "tunnel", "--no-autoupdate", "--protocol", "http2")
+                    val eg = edges()
+                    for (e in eg) { cmd.add("--edge"); cmd.add(e) }
+                    cmd.addAll(listOf("run", "--token", tok))
+                    log = (log + "\nedge: " + eg.size + " alamat").takeLast(1500)
+                    val pb = ProcessBuilder(cmd)
                     pb.environment()["HOME"] = app.filesDir.absolutePath
                     pb.redirectErrorStream(true)
                     val pr = pb.start()
@@ -313,6 +316,20 @@ object CfTunnel {
                 try { Thread.sleep(3000) } catch (_: Exception) {}
             }
         }.start()
+    }
+
+    private fun edges(): List<String> {
+        val out = ArrayList<String>()
+        for (h in listOf("region1.v2.argotunnel.com", "region2.v2.argotunnel.com")) {
+            try {
+                for (a in java.net.InetAddress.getAllByName(h))
+                    if (a is java.net.Inet4Address) out.add(a.hostAddress + ":7844")
+            } catch (e: Exception) {}
+        }
+        if (out.isEmpty()) out.addAll(listOf(
+            "198.41.192.167:7844", "198.41.192.67:7844", "198.41.192.57:7844", "198.41.192.107:7844",
+            "198.41.200.13:7844", "198.41.200.193:7844", "198.41.200.33:7844", "198.41.200.233:7844"))
+        return out.take(10)
     }
 
     fun stop() { on = false; proc?.destroy(); log = "cloudflared berhenti" }
